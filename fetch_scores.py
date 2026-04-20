@@ -117,12 +117,17 @@ def normalize_season(season_str: str) -> str:
     return season_str
 
 
-# --- 5. Upsert risultati_live ---
+# --- 5. Deduplication per sofascore_id (SofaScore può restituire la stessa partita su più date) ---
+seen = set()
 rows = []
 for e in all_partite_sofa:
+    sid = e["id"]
+    if sid in seen:
+        continue
+    seen.add(sid)
     raw_season = e["season"]["year"]
     rows.append({
-        "sofascore_id":   e["id"],
+        "sofascore_id":   sid,
         "home_team":      e["homeTeam"]["name"],
         "home_team_id":   e["homeTeam"]["id"],
         "home_team_code": e["homeTeam"]["nameCode"],
@@ -142,6 +147,8 @@ for e in all_partite_sofa:
         "season_year":     normalize_season(raw_season),
         "gameweek":        e.get("roundInfo", {}).get("round"),
     })
+
+print(f"Righe uniche da inserire: {len(rows)}")
 
 result = supabase.table("risultati_live").upsert(rows, on_conflict="sofascore_id").execute()
 print(f"\nUpsert risultati_live: {len(rows)} righe ✅")
