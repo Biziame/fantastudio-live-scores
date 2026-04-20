@@ -31,7 +31,6 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 day_start = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=0, minute=0, second=0).timestamp())
 day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp())
 
-# Prendi le partite finite nel giorno
 result = (
     supabase.table("risultati_live")
     .select("id, sofascore_id, home_team, away_team, gameweek, season_year")
@@ -49,19 +48,75 @@ if not partite:
     exit(0)
 
 
+def get_incidents(sofascore_id):
+    """
+    Ritorna un dict { player_id: { yellow_card, red_card, penalty_miss, penalty_save } }
+    parsando gli incidents della partita.
+    """
+    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
+    r = session.get(url, headers=headers)
+    if r.status_code != 200:
+        print(f"  Errore incidents {sofascore_id}: {r.status_code}")
+        return {}
+
+    incidents = r.json().get("incidents", [])
+    data = {}
+
+    for inc in incidents:
+        inc_type = inc.get("incidentType", "")
+        player   = inc.get("player") or inc.get("goalkeeper")
+        if not player:
+            continue
+        pid = player.get("id")
+        if not pid:
+            continue
+
+        if pid not in data:
+            data[pid] = {"yellow_card": 0, "red_card": 0, "penalty_miss": 0, "penalty_save": 0}
+
+        if inc_type == "card":
+            card_type = inc.get("incidentClass", "")
+            if card_type == "yellow":
+                data[pid]["yellow_card"] += 1
+            elif card_type in ("red", "yellowRed"):
+                data[pid]["red_card"] += 1
+
+        elif inc_type == "penalty":
+            penalty_class = inc.get("incidentClass", "")
+            if penalty_class == "missed":
+                # chi ha sbagliato
+                data[pid]["penalty_miss"] += 1
+            elif penalty_class == "saved":
+                # chi ha sbagliato (il tiratore)
+                data[pid]["penalty_miss"] += 1
+                # il portiere che ha parato
+                gk = inc.get("goalkeeper")
+                if gk:
+                    gkid = gk.get("id")
+                    if gkid not in data:
+                        data[gkid] = {"yellow_card": 0, "red_card": 0, "penalty_miss": 0, "penalty_save": 0}
+                    data[gkid]["penalty_save"] += 1
+
+    return data
+
+
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
-    """Chiama /lineups e restituisce lista di righe player_stats."""
+    """Chiama /lineups + /incidents e restituisce lista di righe player_stats."""
+    # 1. Lineups
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
         print(f"  Errore lineups {sofascore_id}: {r.status_code}")
         return []
 
-    data = r.json()
-    rows = []
+    lineup_data = r.json()
 
+    # 2. Incidents (cartellini, rigori)
+    incidents = get_incidents(sofascore_id)
+
+    rows = []
     for side in ["home", "away"]:
-        team_data = data.get(side, {})
+        team_data = lineup_data.get(side, {})
         team_name = team_data.get("team", {}).get("name", "")
         is_home = (side == "home")
 
@@ -69,20 +124,24 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
         for p in players:
             player = p.get("player", {})
             stats  = p.get("statistics", {})
+            pid    = player.get("id")
+
+            # Dati da incidents (cartellini/rigori)
+            inc = incidents.get(pid, {})
 
             rows.append({
                 "match_id":       match_db_id,
                 "sofascore_id":   sofascore_id,
-                "player_id":      player.get("id"),
+                "player_id":      pid,
                 "player_name":    player.get("name"),
                 "team_name":      team_name,
                 "is_home":        is_home,
                 "goals":          stats.get("goals", 0) or 0,
                 "goals_penalty":  stats.get("goalsPenalty", 0) or 0,
-                "penalty_miss":   stats.get("penaltyMiss", 0) or 0,
-                "penalty_save":   stats.get("penaltySave", 0) or 0,
-                "yellow_card":    stats.get("yellowCard", 0) or 0,
-                "red_card":       (stats.get("redCard", 0) or 0) + (stats.get("yellowRedCard", 0) or 0),
+                "penalty_miss":   inc.get("penalty_miss", 0),
+                "penalty_save":   inc.get("penalty_save", 0),
+                "yellow_card":    inc.get("yellow_card", 0),
+                "red_card":       inc.get("red_card", 0),
                 "minutes_played": stats.get("minutesPlayed", 0) or 0,
                 "gameweek":       gameweek,
                 "season_year":    season_year,
