@@ -1,6 +1,5 @@
 import tls_client
 import os
-import time
 import datetime
 from supabase import create_client
 
@@ -39,7 +38,6 @@ if not partite_db:
 print(f"Partite nella giornata {current_gameweek}: {len(partite_db)}")
 
 # --- 3. Controlla la finestra orario ---
-# Converte "17 aprile" + "18:30" in datetime
 def parse_match_datetime(match_date: str, match_time: str) -> datetime.datetime | None:
     try:
         parts = match_date.strip().lower().split()
@@ -91,7 +89,6 @@ headers = {
     "Origin": "https://www.sofascore.com",
 }
 
-# Date uniche nel formato YYYY-MM-DD per SofaScore
 date_uniche = set(dt.strftime("%Y-%m-%d") for dt in orari)
 print(f"Date da fetchare: {date_uniche}")
 
@@ -125,31 +122,30 @@ rows = []
 for e in all_partite_sofa:
     raw_season = e["season"]["year"]
     rows.append({
-        "sofascore_id":      e["id"],
-        "home_team":         e["homeTeam"]["name"],
-        "home_team_id":      e["homeTeam"]["id"],
-        "home_team_code":    e["homeTeam"]["nameCode"],
-        "away_team":         e["awayTeam"]["name"],
-        "away_team_id":      e["awayTeam"]["id"],
-        "away_team_code":    e["awayTeam"]["nameCode"],
-        "home_score":        e.get("homeScore", {}).get("current"),
-        "away_score":        e.get("awayScore", {}).get("current"),
-        "home_score_p1":     e.get("homeScore", {}).get("period1"),
-        "away_score_p1":     e.get("awayScore", {}).get("period1"),
-        "status_code":       e["status"]["code"],
-        "status_type":       e["status"]["type"],
-        "status_description":e["status"].get("description"),
-        "winner_code":       e.get("winnerCode"),
-        "start_timestamp":   e["startTimestamp"],
-        "tournament_name":   e["tournament"]["name"],
-        "tournament_id":     e["tournament"]["uniqueTournament"]["id"],
-        "season_year":       normalize_season(raw_season),
-        "gameweek":          e.get("roundInfo", {}).get("round"),
+        "sofascore_id":   e["id"],
+        "home_team":      e["homeTeam"]["name"],
+        "home_team_id":   e["homeTeam"]["id"],
+        "home_team_code": e["homeTeam"]["nameCode"],
+        "away_team":      e["awayTeam"]["name"],
+        "away_team_id":   e["awayTeam"]["id"],
+        "away_team_code": e["awayTeam"]["nameCode"],
+        "home_score":     e.get("homeScore", {}).get("current"),
+        "away_score":     e.get("awayScore", {}).get("current"),
+        "home_score_p1":  e.get("homeScore", {}).get("period1"),
+        "away_score_p1":  e.get("awayScore", {}).get("period1"),
+        "status_code":    e["status"]["code"],
+        "status_type":    e["status"]["type"],
+        "winner_code":    e.get("winnerCode"),
+        "start_timestamp": e["startTimestamp"],
+        "tournament_name": e["tournament"]["name"],
+        "tournament_id":   e["tournament"]["uniqueTournament"]["id"],
+        "season_year":     normalize_season(raw_season),
+        "gameweek":        e.get("roundInfo", {}).get("round"),
     })
 
 result = supabase.table("risultati_live").upsert(rows, on_conflict="sofascore_id").execute()
 print(f"\nUpsert risultati_live: {len(rows)} righe ✅")
 for row in rows:
-    hs  = row["home_score"] if row["home_score"] is not None else "-"
-    aw  = row["away_score"] if row["away_score"] is not None else "-"
+    hs = row["home_score"] if row["home_score"] is not None else "-"
+    aw = row["away_score"] if row["away_score"] is not None else "-"
     print(f"  {row['home_team']} {hs} - {aw} {row['away_team']} [{row['status_type']}]")
