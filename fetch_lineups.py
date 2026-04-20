@@ -1,12 +1,12 @@
 import tls_client
 import os
+import datetime
 from supabase import create_client
 from datetime import date
 
 # --- CONFIG ---
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-SERIE_A_ID = 23
 
 test_date_env = os.environ.get("TEST_DATE", "").strip()
 DATE = test_date_env if test_date_env else str(date.today())
@@ -27,21 +27,11 @@ headers = {
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- Prendi le partite finite oggi dalla tabella risultati_live ---
-result = (
-    supabase.table("risultati_live")
-    .select("id, sofascore_id, home_team, away_team, gameweek, season_year")
-    .eq("status_type", "finished")
-    .like("start_timestamp::text", f"%")  # tutte le finite
-    .execute()
-)
+# Calcola range unix per il giorno richiesto
+day_start = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=0, minute=0, second=0).timestamp())
+day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp())
 
-# Filtra per data: start_timestamp è unix, converti
-import datetime
-day_start = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=0, minute=0).timestamp())
-day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, minute=59).timestamp())
-
-# Ri-query con filtro timestamp
+# Prendi le partite finite nel giorno
 result = (
     supabase.table("risultati_live")
     .select("id, sofascore_id, home_team, away_team, gameweek, season_year")
@@ -115,11 +105,7 @@ for partita in partite:
     if not rows:
         continue
 
-    res = (
-        supabase.table("player_stats")
-        .upsert(rows, on_conflict="sofascore_id,player_id")
-        .execute()
-    )
+    supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)
     print(f"  Salvati {len(rows)} giocatori ✅")
 
