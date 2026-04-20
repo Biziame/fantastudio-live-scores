@@ -27,7 +27,6 @@ headers = {
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Calcola range unix per il giorno richiesto
 day_start = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=0, minute=0, second=0).timestamp())
 day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp())
 
@@ -50,12 +49,11 @@ if not partite:
 
 def get_incidents(sofascore_id):
     """
-    Ritorna un dict { player_id: { yellow_card, red_card, penalty_miss, penalty_save } }
     Struttura SofaScore verificata:
-    - Cartellini: incidentType="card", incidentClass="yellow"/"red"/"yellowRed", player.id
-    - Gol su rigore: incidentType="goal", from="penalty", player.id
-    - Rigore parato: incidentType="goal", from="penalty", incidentClass="saved", goalkeeper.id
-    - Rigore sbagliato: incidentType="goal", from="penalty", incidentClass="missed", player.id
+    - Cartellini:      incidentType="card",  incidentClass="yellow"/"red"/"yellowRed"
+    - Gol su rigore:   incidentType="goal",  from="penalty", incidentClass="regular"
+    - Rigore sbagliato: incidentType="goal", from="penalty", incidentClass="missed"
+    - Rigore parato:   incidentType="goal",  from="penalty", incidentClass="saved"  (+ goalkeeper)
     """
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
     r = session.get(url, headers=headers)
@@ -68,48 +66,46 @@ def get_incidents(sofascore_id):
 
     def ensure(pid):
         if pid not in data:
-            data[pid] = {"yellow_card": 0, "red_card": 0, "penalty_miss": 0, "penalty_save": 0}
+            data[pid] = {
+                "yellow_card":   0,
+                "red_card":      0,
+                "goals_penalty": 0,
+                "penalty_miss":  0,
+                "penalty_save":  0,
+            }
 
     for inc in incidents:
         inc_type  = inc.get("incidentType", "")
         inc_class = inc.get("incidentClass", "")
+        player    = inc.get("player")
+        pid       = player.get("id") if player else None
 
         # --- CARTELLINI ---
-        if inc_type == "card":
-            player = inc.get("player")
-            if not player:
-                continue
-            pid = player.get("id")
-            if not pid:
-                continue
+        if inc_type == "card" and pid:
             ensure(pid)
             if inc_class == "yellow":
                 data[pid]["yellow_card"] += 1
             elif inc_class in ("red", "yellowRed"):
                 data[pid]["red_card"] += 1
 
-        # --- GOL SU RIGORE / RIGORE SBAGLIATO / RIGORE PARATO ---
+        # --- RIGORI (gol, sbagliati, parati) ---
         elif inc_type == "goal" and inc.get("from") == "penalty":
-            player = inc.get("player")
-            if player:
-                pid = player.get("id")
+
+            if inc_class == "regular" and pid:
+                # Rigore trasformato
+                ensure(pid)
+                data[pid]["goals_penalty"] += 1
+
+            elif inc_class == "missed" and pid:
+                # Rigore sbagliato (fuori o palo)
+                ensure(pid)
+                data[pid]["penalty_miss"] += 1
+
+            elif inc_class == "saved":
+                # Rigore parato: tiratore sbaglia, portiere para
                 if pid:
                     ensure(pid)
-                    if inc_class == "missed":
-                        # Tiratore ha sbagliato (fuori/palo)
-                        data[pid]["penalty_miss"] += 1
-                    # Se inc_class == "regular" è gol: non serve tracciare qui
-                    # (goals_penalty viene già da statistics in lineups)
-
-            # Rigore parato: goalkeeper presente + incidentClass="saved"
-            if inc_class == "saved":
-                # Chi ha tirato e sbagliato
-                if player:
-                    pid = player.get("id")
-                    if pid:
-                        ensure(pid)
-                        data[pid]["penalty_miss"] += 1
-                # Chi ha parato
+                    data[pid]["penalty_miss"] += 1
                 gk = inc.get("goalkeeper")
                 if gk:
                     gkid = gk.get("id")
@@ -121,7 +117,6 @@ def get_incidents(sofascore_id):
 
 
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
-    """Chiama /lineups + /incidents e restituisce lista di righe player_stats."""
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
@@ -150,8 +145,9 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
                 "player_name":    player.get("name"),
                 "team_name":      team_name,
                 "is_home":        is_home,
+                # Gol totali da statistics, gol su rigore da incidents
                 "goals":          stats.get("goals", 0) or 0,
-                "goals_penalty":  stats.get("goalsPenalty", 0) or 0,
+                "goals_penalty":  inc.get("goals_penalty", 0),
                 "penalty_miss":   inc.get("penalty_miss", 0),
                 "penalty_save":   inc.get("penalty_save", 0),
                 "yellow_card":    inc.get("yellow_card", 0),
@@ -178,16 +174,18 @@ for partita in partite:
     if not rows:
         continue
 
-    # Log cartellini trovati per verifica
-    ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
-    espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
-    pen_saved = [r["player_name"] for r in rows if r["penalty_save"] > 0]
-    pen_miss  = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
+    # Log di verifica
+    marcatori  = [f"{r['player_name']} ({r['goals']} gol, {r['goals_penalty']} rig)" for r in rows if r["goals"] > 0]
+    ammoniti   = [r["player_name"] for r in rows if r["yellow_card"] > 0]
+    espulsi    = [r["player_name"] for r in rows if r["red_card"] > 0]
+    pen_saved  = [r["player_name"] for r in rows if r["penalty_save"] > 0]
+    pen_miss   = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
 
-    if ammoniti:  print(f"  Ammoniti:        {ammoniti}")
-    if espulsi:   print(f"  Espulsi:         {espulsi}")
-    if pen_saved: print(f"  Rigori parati:   {pen_saved}")
-    if pen_miss:  print(f"  Rigori sbagliati:{pen_miss}")
+    if marcatori:  print(f"  Marcatori:       {marcatori}")
+    if ammoniti:   print(f"  Ammoniti:        {ammoniti}")
+    if espulsi:    print(f"  Espulsi:         {espulsi}")
+    if pen_saved:  print(f"  Rigori parati:   {pen_saved}")
+    if pen_miss:   print(f"  Rigori sbagliati:{pen_miss}")
 
     supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)
