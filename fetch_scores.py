@@ -1,6 +1,7 @@
 import tls_client
 import json
 import os
+import time
 from supabase import create_client
 from datetime import date
 
@@ -45,6 +46,37 @@ print(f"Partite Serie A trovate: {len(partite)}")
 
 if not partite:
     print("Nessuna partita Serie A, uscita.")
+    exit(0)
+
+
+def has_relevant_matches(events: list) -> bool:
+    """
+    Ritorna True se almeno una partita è:
+    - In corso (inprogress)
+    - Inizia entro 30 minuti
+    - È finita da meno di 30 minuti
+    """
+    now = int(time.time())
+    WINDOW = 30 * 60  # 30 minuti in secondi
+
+    for event in events:
+        status = event.get("status", {}).get("type", "")
+        start_ts = event.get("startTimestamp", 0)
+
+        if status == "inprogress":
+            return True
+
+        if status == "notstarted" and 0 <= (start_ts - now) <= WINDOW:
+            return True
+
+        if status in ("finished", "postponed") and 0 <= (now - start_ts) <= WINDOW:
+            return True
+
+    return False
+
+
+if not has_relevant_matches(partite):
+    print("Nessuna partita rilevante ora (in corso / entro 30min / finita da <30min), skip upsert.")
     exit(0)
 
 
