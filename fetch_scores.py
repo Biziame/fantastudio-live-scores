@@ -9,10 +9,11 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 SERIE_A_ID = 23
 
-# Leggi DATE da env (per test manuali) oppure usa oggi
-DATE = os.environ.get("TEST_DATE", str(date.today()))
+# Leggi TEST_DATE da env — se vuoto o assente usa oggi
+test_date_env = os.environ.get("TEST_DATE", "").strip()
+DATE = test_date_env if test_date_env else str(date.today())
 
-print(f"Fetching Serie A results for {DATE}...")
+print(f"Fetching Serie A results for: [{DATE}]")
 
 # --- SOFASCORE con tls_client ---
 session = tls_client.Session(
@@ -28,6 +29,7 @@ headers = {
 }
 
 url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{DATE}"
+print(f"URL: {url}")
 r = session.get(url, headers=headers)
 print(f"SofaScore status: {r.status_code}")
 
