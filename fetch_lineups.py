@@ -7,6 +7,9 @@ from supabase import create_client
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
+GAMEWEEK_ENV = os.environ.get("GAMEWEEK", "").strip()
+SKIP_TIME_CHECK = os.environ.get("SKIP_TIME_CHECK", "false").strip().lower() == "true"
+
 MESI = {
     "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4,
     "maggio": 5, "giugno": 6, "luglio": 7, "agosto": 8,
@@ -15,14 +18,17 @@ MESI = {
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 1. Trova il gameweek più alto in probabili_formazioni ---
-res = supabase.table("probabili_formazioni").select("gameweek").order("gameweek", desc=True).limit(1).execute()
-if not res.data:
-    print("Nessun dato in probabili_formazioni, uscita.")
-    exit(0)
-
-current_gameweek = res.data[0]["gameweek"]
-print(f"Gameweek corrente: {current_gameweek}")
+# --- 1. Determina gameweek ---
+if GAMEWEEK_ENV:
+    current_gameweek = int(GAMEWEEK_ENV)
+    print(f"Gameweek manuale: {current_gameweek}")
+else:
+    res = supabase.table("probabili_formazioni").select("gameweek").order("gameweek", desc=True).limit(1).execute()
+    if not res.data:
+        print("Nessun dato in probabili_formazioni, uscita.")
+        exit(0)
+    current_gameweek = res.data[0]["gameweek"]
+    print(f"Gameweek corrente (auto): {current_gameweek}")
 
 # --- 2. Prendi tutte le partite di quel gameweek ---
 partite_db = supabase.table("probabili_formazioni") \
@@ -70,7 +76,9 @@ finestra_end   = ultima_partita + datetime.timedelta(minutes=90)
 print(f"Finestra attiva: {finestra_start.strftime('%H:%M')} - {finestra_end.strftime('%H:%M')} ({finestra_start.date()})")
 print(f"Ora attuale:     {now.strftime('%H:%M')}")
 
-if not (finestra_start <= now <= finestra_end):
+if SKIP_TIME_CHECK:
+    print("SKIP_TIME_CHECK=true, salto il controllo finestra orario.")
+elif not (finestra_start <= now <= finestra_end):
     print("Fuori dalla finestra orario, uscita.")
     exit(0)
 
