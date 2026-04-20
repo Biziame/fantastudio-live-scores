@@ -2,48 +2,105 @@ import tls_client
 import os
 import datetime
 from supabase import create_client
-from datetime import date
 
+# --- CONFIG ---
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
-test_date_env = os.environ.get("TEST_DATE", "").strip()
-DATE = test_date_env if test_date_env else str(date.today())
-
-print(f"Fetching lineups/stats for: [{DATE}]")
-
-session = tls_client.Session(
-    client_identifier="chrome_124",
-    random_tls_extension_order=True
-)
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Referer": "https://www.sofascore.com/",
-    "Origin": "https://www.sofascore.com",
+MESI = {
+    "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4,
+    "maggio": 5, "giugno": 6, "luglio": 7, "agosto": 8,
+    "settembre": 9, "ottobre": 10, "novembre": 11, "dicembre": 12
 }
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-day_start = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=0,  minute=0,  second=0).timestamp())
-day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, minute=59, second=59).timestamp())
+# --- 1. Trova il gameweek più alto in probabili_formazioni ---
+res = supabase.table("probabili_formazioni").select("gameweek").order("gameweek", desc=True).limit(1).execute()
+if not res.data:
+    print("Nessun dato in probabili_formazioni, uscita.")
+    exit(0)
 
-result = (
-    supabase.table("risultati_live")
-    .select("id, sofascore_id, home_team, away_team, gameweek, season_year")
-    .in_("status_type", ["finished", "inprogress"])
-    .gte("start_timestamp", day_start)
-    .lte("start_timestamp", day_end)
+current_gameweek = res.data[0]["gameweek"]
+print(f"Gameweek corrente: {current_gameweek}")
+
+# --- 2. Prendi tutte le partite di quel gameweek ---
+partite_db = supabase.table("probabili_formazioni") \
+    .select("home_team, away_team, match_date, match_time, gameweek, season") \
+    .eq("gameweek", current_gameweek) \
+    .execute().data
+
+if not partite_db:
+    print(f"Nessuna partita trovata per giornata {current_gameweek}, uscita.")
+    exit(0)
+
+print(f"Partite nella giornata {current_gameweek}: {len(partite_db)}")
+
+# --- 3. Controlla la finestra orario ---
+def parse_match_datetime(match_date: str, match_time: str) -> datetime.datetime | None:
+    try:
+        parts = match_date.strip().lower().split()
+        giorno = int(parts[0])
+        mese = MESI.get(parts[1], 0)
+        if not mese:
+            return None
+        anno = datetime.datetime.now().year
+        ora, minuto = map(int, match_time.strip().split(":"))
+        return datetime.datetime(anno, mese, giorno, ora, minuto)
+    except Exception as e:
+        print(f"  Errore parsing data '{match_date} {match_time}': {e}")
+        return None
+
+now = datetime.datetime.now()
+orari = []
+for p in partite_db:
+    dt = parse_match_datetime(p["match_date"], p["match_time"])
+    if dt:
+        orari.append(dt)
+
+if not orari:
+    print("Impossibile determinare gli orari delle partite, uscita.")
+    exit(0)
+
+prima_partita = min(orari)
+ultima_partita = max(orari)
+finestra_start = prima_partita - datetime.timedelta(minutes=30)
+finestra_end   = ultima_partita + datetime.timedelta(minutes=90)
+
+print(f"Finestra attiva: {finestra_start.strftime('%H:%M')} - {finestra_end.strftime('%H:%M')} ({finestra_start.date()})")
+print(f"Ora attuale:     {now.strftime('%H:%M')}")
+
+if not (finestra_start <= now <= finestra_end):
+    print("Fuori dalla finestra orario, uscita.")
+    exit(0)
+
+print("Dentro la finestra, procedo con fetch lineups/stats...")
+
+# --- 4. Prendi le partite finished/inprogress da risultati_live per questo gameweek ---
+result = supabase.table("risultati_live") \
+    .select("id, sofascore_id, home_team, away_team, gameweek, season_year") \
+    .eq("gameweek", current_gameweek) \
+    .in_("status_type", ["finished", "inprogress"]) \
     .execute()
-)
 
 partite = result.data
 print(f"Partite trovate (finished + inprogress): {len(partite)}")
 
 if not partite:
-    print("Nessuna partita in corso o finita oggi, uscita.")
+    print("Nessuna partita in corso o finita per questa giornata, uscita.")
     exit(0)
+
+# --- 5. Sessione SofaScore ---
+session = tls_client.Session(
+    client_identifier="chrome_124",
+    random_tls_extension_order=True
+)
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Referer": "https://www.sofascore.com/",
+    "Origin": "https://www.sofascore.com",
+}
 
 
 def get_incidents(sofascore_id):
@@ -58,12 +115,9 @@ def get_incidents(sofascore_id):
     def ensure(pid):
         if pid not in data:
             data[pid] = {
-                "goals":         0,
-                "goals_penalty": 0,
-                "penalty_miss":  0,
-                "penalty_save":  0,
-                "yellow_card":   0,
-                "red_card":      0,
+                "goals": 0, "goals_penalty": 0,
+                "penalty_miss": 0, "penalty_save": 0,
+                "yellow_card": 0, "red_card": 0,
             }
 
     for inc in r.json().get("incidents", []):
@@ -94,7 +148,6 @@ def get_incidents(sofascore_id):
                     ensure(pid)
                     data[pid]["penalty_miss"] += 1
                 else:
-                    # Rigore trasformato (incidentClass assente o "regular")
                     if pid:
                         ensure(pid)
                         data[pid]["goals"] += 1
@@ -149,6 +202,7 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
     return rows
 
 
+# --- 6. Processa ogni partita ---
 total_rows = 0
 for partita in partite:
     print(f"\nProcesso: {partita['home_team']} vs {partita['away_team']} (id={partita['sofascore_id']})")
@@ -163,17 +217,13 @@ for partita in partite:
     if not rows:
         continue
 
-    marcatori = [f"{r['player_name']} ({r['goals']} gol, {r['goals_penalty']} rig)" for r in rows if r["goals"] > 0]
+    marcatori = [f"{r['player_name']} ({r['goals']} gol)" for r in rows if r["goals"] > 0]
     ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
     espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
-    pen_saved = [r["player_name"] for r in rows if r["penalty_save"] > 0]
-    pen_miss  = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
 
-    if marcatori:  print(f"  Marcatori:        {marcatori}")
-    if ammoniti:   print(f"  Ammoniti:         {ammoniti}")
-    if espulsi:    print(f"  Espulsi:          {espulsi}")
-    if pen_saved:  print(f"  Rigori parati:    {pen_saved}")
-    if pen_miss:   print(f"  Rigori sbagliati: {pen_miss}")
+    if marcatori: print(f"  Marcatori:  {marcatori}")
+    if ammoniti:  print(f"  Ammoniti:   {ammoniti}")
+    if espulsi:   print(f"  Espulsi:    {espulsi}")
 
     supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)
