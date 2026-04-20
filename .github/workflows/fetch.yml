@@ -1,0 +1,28 @@
+name: Fetch Serie A Live Scores
+
+on:
+  schedule:
+    # Ogni 5 minuti dalle 12:00 alle 23:00 UTC (14:00-01:00 ora italiana)
+    - cron: '*/5 12-23 * * *'
+  workflow_dispatch:  # permette lancio manuale dal pannello GitHub
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run fetch script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python fetch_scores.py
