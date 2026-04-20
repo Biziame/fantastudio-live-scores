@@ -47,11 +47,29 @@ if not partite:
     print("Nessuna partita Serie A, uscita.")
     exit(0)
 
+
+def normalize_season(season_str: str) -> str:
+    """
+    Converte il formato SofaScore in anno intero.
+    "25/26" -> "2025"
+    "26/27" -> "2026"
+    "2025/2026" -> "2025"
+    """
+    if "/" in season_str:
+        first = season_str.split("/")[0].strip()
+        if len(first) == 2:
+            return f"20{first}"
+        return first
+    return season_str
+
+
 # --- SUPABASE ---
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 rows = []
 for e in partite:
+    raw_season = e["season"]["year"]
+    season_normalized = normalize_season(raw_season)
     rows.append({
         "sofascore_id": e["id"],
         "home_team": e["homeTeam"]["name"],
@@ -70,7 +88,7 @@ for e in partite:
         "start_timestamp": e["startTimestamp"],
         "tournament_name": e["tournament"]["name"],
         "tournament_id": e["tournament"]["uniqueTournament"]["id"],
-        "season_year": e["season"]["year"],
+        "season_year": season_normalized,
         "gameweek": e.get("roundInfo", {}).get("round"),
     })
 
@@ -79,4 +97,4 @@ print(f"Upsert completato: {len(rows)} righe ✅")
 for row in rows:
     hs = row['home_score'] if row['home_score'] is not None else '-'
     as_ = row['away_score'] if row['away_score'] is not None else '-'
-    print(f"  {row['home_team']} {hs} - {as_} {row['away_team']} [{row['status_type']}]")
+    print(f"  {row['home_team']} {hs} - {as_} {row['away_team']} [{row['status_type']}] season: {row['season_year']}")
