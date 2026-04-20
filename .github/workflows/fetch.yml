@@ -26,9 +26,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run fetch script
+      - name: Run fetch_scores
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TEST_DATE: ${{ github.event.inputs.test_date }}
         run: python fetch_scores.py
+
+      - name: Run fetch_lineups
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TEST_DATE: ${{ github.event.inputs.test_date }}
+        run: python fetch_lineups.py
