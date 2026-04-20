@@ -4,7 +4,12 @@ on:
   schedule:
     # Ogni 5 minuti dalle 12:00 alle 23:00 UTC (14:00-01:00 ora italiana)
     - cron: '*/5 12-23 * * *'
-  workflow_dispatch:  # permette lancio manuale dal pannello GitHub
+  workflow_dispatch:
+    inputs:
+      test_date:
+        description: 'Data da testare (YYYY-MM-DD), lascia vuoto per oggi'
+        required: false
+        default: ''
 
 jobs:
   fetch:
@@ -25,4 +30,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TEST_DATE: ${{ github.event.inputs.test_date }}
         run: python fetch_scores.py
