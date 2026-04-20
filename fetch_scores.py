@@ -8,7 +8,9 @@ from datetime import date
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 SERIE_A_ID = 23
-DATE = str(date.today())
+
+# Leggi DATE da env (per test manuali) oppure usa oggi
+DATE = os.environ.get("TEST_DATE", str(date.today()))
 
 print(f"Fetching Serie A results for {DATE}...")
 
@@ -34,11 +36,13 @@ if r.status_code != 200:
     exit(1)
 
 data = r.json()
+print(f"Totale eventi trovati: {len(data['events'])}")
+
 partite = [e for e in data["events"] if e.get("uniqueTournament", {}).get("id") == SERIE_A_ID]
 print(f"Partite Serie A trovate: {len(partite)}")
 
 if not partite:
-    print("Nessuna partita oggi, uscita.")
+    print("Nessuna partita Serie A oggi, uscita.")
     exit(0)
 
 # --- SUPABASE ---
