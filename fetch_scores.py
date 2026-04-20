@@ -1,6 +1,7 @@
 import tls_client
 import os
 import datetime
+import zoneinfo
 from supabase import create_client
 
 # --- CONFIG ---
@@ -17,7 +18,14 @@ MESI = {
     "settembre": 9, "ottobre": 10, "novembre": 11, "dicembre": 12
 }
 
+ROMA = zoneinfo.ZoneInfo("Europe/Rome")
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+def now_it() -> datetime.datetime:
+    """Ora corrente nel fuso orario italiano, naive (senza tzinfo) per confronti uniformi."""
+    return datetime.datetime.now(ROMA).replace(tzinfo=None)
 
 
 # --- UTILITY: parsing data/ora partita ---
@@ -28,7 +36,7 @@ def parse_match_datetime(match_date: str, match_time: str) -> datetime.datetime 
         mese = MESI.get(parts[1], 0)
         if not mese:
             return None
-        anno = datetime.datetime.now().year
+        anno = now_it().year
         ora, minuto = map(int, match_time.strip().split(":"))
         return datetime.datetime(anno, mese, giorno, ora, minuto)
     except Exception as e:
@@ -66,7 +74,7 @@ else:
 
         finestra_prec = get_finestra(partite_prec)
         if finestra_prec:
-            now = datetime.datetime.now()
+            now = now_it()
             fin_start, fin_end = finestra_prec
             if fin_start <= now <= fin_end:
                 current_gameweek = gw_precedente
@@ -87,7 +95,7 @@ if not partite_db:
 print(f"Partite nella giornata {current_gameweek}: {len(partite_db)}")
 
 # --- 3. Controlla la finestra orario ---
-now = datetime.datetime.now()
+now = now_it()
 orari = [parse_match_datetime(p["match_date"], p["match_time"]) for p in partite_db]
 orari = [dt for dt in orari if dt]
 
@@ -101,7 +109,7 @@ finestra_start = prima_partita - datetime.timedelta(minutes=30)
 finestra_end   = ultima_partita + datetime.timedelta(minutes=120)
 
 print(f"Finestra attiva: {finestra_start.strftime('%H:%M')} - {finestra_end.strftime('%H:%M')} ({finestra_start.date()})")
-print(f"Ora attuale:     {now.strftime('%H:%M')}")
+print(f"Ora attuale:     {now.strftime('%H:%M')} (IT)")
 
 if SKIP_TIME_CHECK:
     print("SKIP_TIME_CHECK=true, salto il controllo finestra orario.")
