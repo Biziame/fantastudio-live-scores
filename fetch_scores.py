@@ -19,16 +19,59 @@ MESI = {
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
+# --- UTILITY: parsing data/ora partita ---
+def parse_match_datetime(match_date: str, match_time: str) -> datetime.datetime | None:
+    try:
+        parts = match_date.strip().lower().split()
+        giorno = int(parts[0])
+        mese = MESI.get(parts[1], 0)
+        if not mese:
+            return None
+        anno = datetime.datetime.now().year
+        ora, minuto = map(int, match_time.strip().split(":"))
+        return datetime.datetime(anno, mese, giorno, ora, minuto)
+    except Exception as e:
+        print(f"  Errore parsing data '{match_date} {match_time}': {e}")
+        return None
+
+
+def get_finestra(partite: list) -> tuple[datetime.datetime, datetime.datetime] | None:
+    orari = [parse_match_datetime(p["match_date"], p["match_time"]) for p in partite]
+    orari = [dt for dt in orari if dt]
+    if not orari:
+        return None
+    return min(orari) - datetime.timedelta(minutes=30), max(orari) + datetime.timedelta(minutes=120)
+
+
 # --- 1. Determina gameweek ---
 if GAMEWEEK_ENV:
     current_gameweek = int(GAMEWEEK_ENV)
     print(f"Gameweek manuale: {current_gameweek}")
 else:
-    res = supabase.table("probabili_formazioni").select("gameweek").order("gameweek", desc=True).limit(1).execute()
+    res = supabase.table("probabili_formazioni").select("gameweek").order("gameweek", desc=True).limit(2).execute()
     if not res.data:
         print("Nessun dato in probabili_formazioni, uscita.")
         exit(0)
-    current_gameweek = res.data[0]["gameweek"]
+
+    gameweeks_disponibili = sorted(set(r["gameweek"] for r in res.data), reverse=True)
+    current_gameweek = gameweeks_disponibili[0]  # default: la più recente
+
+    if len(gameweeks_disponibili) >= 2:
+        gw_precedente = gameweeks_disponibili[1]
+        partite_prec = supabase.table("probabili_formazioni") \
+            .select("match_date, match_time") \
+            .eq("gameweek", gw_precedente) \
+            .execute().data
+
+        finestra_prec = get_finestra(partite_prec)
+        if finestra_prec:
+            now = datetime.datetime.now()
+            fin_start, fin_end = finestra_prec
+            if fin_start <= now <= fin_end:
+                current_gameweek = gw_precedente
+                print(f"Gameweek precedente ({gw_precedente}) ancora in finestra ({fin_start.strftime('%H:%M')}–{fin_end.strftime('%H:%M')}), uso quella.")
+
     print(f"Gameweek corrente (auto): {current_gameweek}")
 
 # --- 2. Prendi tutte le partite di quel gameweek ---
@@ -44,26 +87,9 @@ if not partite_db:
 print(f"Partite nella giornata {current_gameweek}: {len(partite_db)}")
 
 # --- 3. Controlla la finestra orario ---
-def parse_match_datetime(match_date: str, match_time: str) -> datetime.datetime | None:
-    try:
-        parts = match_date.strip().lower().split()
-        giorno = int(parts[0])
-        mese = MESI.get(parts[1], 0)
-        if not mese:
-            return None
-        anno = datetime.datetime.now().year
-        ora, minuto = map(int, match_time.strip().split(":"))
-        return datetime.datetime(anno, mese, giorno, ora, minuto)
-    except Exception as e:
-        print(f"  Errore parsing data '{match_date} {match_time}': {e}")
-        return None
-
 now = datetime.datetime.now()
-orari = []
-for p in partite_db:
-    dt = parse_match_datetime(p["match_date"], p["match_time"])
-    if dt:
-        orari.append(dt)
+orari = [parse_match_datetime(p["match_date"], p["match_time"]) for p in partite_db]
+orari = [dt for dt in orari if dt]
 
 if not orari:
     print("Impossibile determinare gli orari delle partite, uscita.")
@@ -72,7 +98,7 @@ if not orari:
 prima_partita = min(orari)
 ultima_partita = max(orari)
 finestra_start = prima_partita - datetime.timedelta(minutes=30)
-finestra_end   = ultima_partita + datetime.timedelta(minutes=90)
+finestra_end   = ultima_partita + datetime.timedelta(minutes=120)
 
 print(f"Finestra attiva: {finestra_start.strftime('%H:%M')} - {finestra_end.strftime('%H:%M')} ({finestra_start.date()})")
 print(f"Ora attuale:     {now.strftime('%H:%M')}")
