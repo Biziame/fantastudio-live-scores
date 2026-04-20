@@ -7,15 +7,13 @@ from datetime import date
 # --- CONFIG DA SECRETS ---
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-SERIE_A_ID = 23
 
-# Leggi TEST_DATE da env — se vuoto o assente usa oggi
+# Leggi TEST_DATE da env
 test_date_env = os.environ.get("TEST_DATE", "").strip()
 DATE = test_date_env if test_date_env else str(date.today())
 
-print(f"Fetching Serie A results for: [{DATE}]")
+print(f"Fetching results for: [{DATE}]")
 
-# --- SOFASCORE con tls_client ---
 session = tls_client.Session(
     client_identifier="chrome_124",
     random_tls_extension_order=True
@@ -34,49 +32,33 @@ r = session.get(url, headers=headers)
 print(f"SofaScore status: {r.status_code}")
 
 if r.status_code != 200:
-    print(f"Errore SofaScore: {r.text[:300]}")
+    print(f"Errore: {r.text[:300]}")
     exit(1)
 
 data = r.json()
-print(f"Totale eventi trovati: {len(data['events'])}")
+events = data["events"]
+print(f"Totale eventi: {len(events)}")
 
-partite = [e for e in data["events"] if e.get("uniqueTournament", {}).get("id") == SERIE_A_ID]
-print(f"Partite Serie A trovate: {len(partite)}")
+# Stampa tutti i tornei unici presenti
+tornei = {}
+for e in events:
+    ut = e.get("uniqueTournament", {})
+    tid = ut.get("id")
+    tname = ut.get("name", "?")
+    cat = e.get("tournament", {}).get("category", {}).get("name", "?")
+    if tid not in tornei:
+        tornei[tid] = f"{tname} (cat: {cat})"
 
-if not partite:
-    print("Nessuna partita Serie A oggi, uscita.")
-    exit(0)
+print("\n=== TORNEI TROVATI ===")
+for tid, tname in sorted(tornei.items(), key=lambda x: str(x[0])):
+    print(f"  ID {tid}: {tname}")
 
-# --- SUPABASE ---
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-rows = []
-for e in partite:
-    rows.append({
-        "sofascore_id": e["id"],
-        "home_team": e["homeTeam"]["name"],
-        "home_team_id": e["homeTeam"]["id"],
-        "home_team_code": e["homeTeam"]["nameCode"],
-        "away_team": e["awayTeam"]["name"],
-        "away_team_id": e["awayTeam"]["id"],
-        "away_team_code": e["awayTeam"]["nameCode"],
-        "home_score": e.get("homeScore", {}).get("current"),
-        "away_score": e.get("awayScore", {}).get("current"),
-        "home_score_p1": e.get("homeScore", {}).get("period1"),
-        "away_score_p1": e.get("awayScore", {}).get("period1"),
-        "status_code": e["status"]["code"],
-        "status_type": e["status"]["type"],
-        "winner_code": e.get("winnerCode"),
-        "start_timestamp": e["startTimestamp"],
-        "tournament_name": e["tournament"]["name"],
-        "tournament_id": e["uniqueTournament"]["id"],
-        "season_year": e["season"]["year"],
-        "gameweek": e.get("roundInfo", {}).get("round"),
-    })
-
-result = supabase.table("risultati_live").upsert(rows, on_conflict="sofascore_id").execute()
-print(f"Upsert completato: {len(rows)} righe ✅")
-for row in rows:
-    hs = row['home_score'] if row['home_score'] is not None else '-'
-    as_ = row['away_score'] if row['away_score'] is not None else '-'
-    print(f"  {row['home_team']} {hs} - {as_} {row['away_team']} [{row['status_type']}]")
+# Cerca Serie A per nome
+print("\n=== CERCA 'serie' o 'italy' nei nomi ===")
+for e in events:
+    ut = e.get("uniqueTournament", {})
+    tname = ut.get("name", "").lower()
+    cat = e.get("tournament", {}).get("category", {}).get("name", "").lower()
+    if "serie" in tname or "italy" in cat or "italia" in cat:
+        print(f"  ID {ut.get('id')}: {ut.get('name')} | cat: {cat} | {e['homeTeam']['name']} vs {e['awayTeam']['name']}")
+        break  # basta uno per confermare l'ID
