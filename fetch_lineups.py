@@ -1,6 +1,5 @@
 import tls_client
 import os
-import json
 import datetime
 from supabase import create_client
 from datetime import date
@@ -49,43 +48,149 @@ if not partite:
     exit(0)
 
 
-def debug_incidents(sofascore_id, home_team, away_team):
-    """Scarica e logga TUTTI gli incidents per capire la struttura dati."""
+def get_incidents(sofascore_id):
+    """
+    Ritorna un dict { player_id: { yellow_card, red_card, penalty_miss, penalty_save } }
+    Struttura SofaScore verificata:
+    - Cartellini: incidentType="card", incidentClass="yellow"/"red"/"yellowRed", player.id
+    - Gol su rigore: incidentType="goal", from="penalty", player.id
+    - Rigore parato: incidentType="goal", from="penalty", incidentClass="saved", goalkeeper.id
+    - Rigore sbagliato: incidentType="goal", from="penalty", incidentClass="missed", player.id
+    """
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
     r = session.get(url, headers=headers)
-    print(f"  Incidents status: {r.status_code}")
     if r.status_code != 200:
-        return
+        print(f"  Errore incidents {sofascore_id}: {r.status_code}")
+        return {}
 
     incidents = r.json().get("incidents", [])
-    print(f"  Totale incidents: {len(incidents)}")
+    data = {}
 
-    # Filtra solo quelli rilevanti per fantacalcio
-    interesting_types = {"card", "penalty", "goal", "missedPenalty", "penaltyShootout"}
+    def ensure(pid):
+        if pid not in data:
+            data[pid] = {"yellow_card": 0, "red_card": 0, "penalty_miss": 0, "penalty_save": 0}
 
-    print(f"  --- TUTTI I TIPI DI INCIDENT TROVATI ---")
-    all_types = set(inc.get("incidentType", "UNKNOWN") for inc in incidents)
-    print(f"  Types: {all_types}")
-
-    print(f"  --- INCIDENTS RILEVANTI ---")
     for inc in incidents:
-        inc_type = inc.get("incidentType", "")
-        if inc_type not in interesting_types:
-            continue
-        # Stampa il JSON completo dell'incident (senza campi enormi)
-        safe = {k: v for k, v in inc.items() if k not in ("text", "description")}
-        print(f"  [{inc_type}] {json.dumps(safe, ensure_ascii=False)}")
+        inc_type  = inc.get("incidentType", "")
+        inc_class = inc.get("incidentClass", "")
+
+        # --- CARTELLINI ---
+        if inc_type == "card":
+            player = inc.get("player")
+            if not player:
+                continue
+            pid = player.get("id")
+            if not pid:
+                continue
+            ensure(pid)
+            if inc_class == "yellow":
+                data[pid]["yellow_card"] += 1
+            elif inc_class in ("red", "yellowRed"):
+                data[pid]["red_card"] += 1
+
+        # --- GOL SU RIGORE / RIGORE SBAGLIATO / RIGORE PARATO ---
+        elif inc_type == "goal" and inc.get("from") == "penalty":
+            player = inc.get("player")
+            if player:
+                pid = player.get("id")
+                if pid:
+                    ensure(pid)
+                    if inc_class == "missed":
+                        # Tiratore ha sbagliato (fuori/palo)
+                        data[pid]["penalty_miss"] += 1
+                    # Se inc_class == "regular" è gol: non serve tracciare qui
+                    # (goals_penalty viene già da statistics in lineups)
+
+            # Rigore parato: goalkeeper presente + incidentClass="saved"
+            if inc_class == "saved":
+                # Chi ha tirato e sbagliato
+                if player:
+                    pid = player.get("id")
+                    if pid:
+                        ensure(pid)
+                        data[pid]["penalty_miss"] += 1
+                # Chi ha parato
+                gk = inc.get("goalkeeper")
+                if gk:
+                    gkid = gk.get("id")
+                    if gkid:
+                        ensure(gkid)
+                        data[gkid]["penalty_save"] += 1
+
+    return data
 
 
-# --- Per ogni partita, logga solo gli incidents (nessun salvataggio) ---
+def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
+    """Chiama /lineups + /incidents e restituisce lista di righe player_stats."""
+    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
+    r = session.get(url, headers=headers)
+    if r.status_code != 200:
+        print(f"  Errore lineups {sofascore_id}: {r.status_code}")
+        return []
+
+    lineup_data = r.json()
+    incidents   = get_incidents(sofascore_id)
+
+    rows = []
+    for side in ["home", "away"]:
+        team_data = lineup_data.get(side, {})
+        team_name = team_data.get("team", {}).get("name", "")
+        is_home   = (side == "home")
+
+        for p in team_data.get("players", []):
+            player = p.get("player", {})
+            stats  = p.get("statistics", {})
+            pid    = player.get("id")
+            inc    = incidents.get(pid, {})
+
+            rows.append({
+                "match_id":       match_db_id,
+                "sofascore_id":   sofascore_id,
+                "player_id":      pid,
+                "player_name":    player.get("name"),
+                "team_name":      team_name,
+                "is_home":        is_home,
+                "goals":          stats.get("goals", 0) or 0,
+                "goals_penalty":  stats.get("goalsPenalty", 0) or 0,
+                "penalty_miss":   inc.get("penalty_miss", 0),
+                "penalty_save":   inc.get("penalty_save", 0),
+                "yellow_card":    inc.get("yellow_card", 0),
+                "red_card":       inc.get("red_card", 0),
+                "minutes_played": stats.get("minutesPlayed", 0) or 0,
+                "gameweek":       gameweek,
+                "season_year":    season_year,
+            })
+
+    return rows
+
+
+# --- Itera le partite e salva ---
+total_rows = 0
 for partita in partite:
-    print(f"\n{'='*60}")
-    print(f"PARTITA: {partita['home_team']} vs {partita['away_team']} (sofascore_id={partita['sofascore_id']})")
-    print(f"{'='*60}")
-    debug_incidents(
+    print(f"\nProcesso: {partita['home_team']} vs {partita['away_team']} (id={partita['sofascore_id']})")
+    rows = get_player_rows(
+        match_db_id=partita["id"],
         sofascore_id=partita["sofascore_id"],
-        home_team=partita["home_team"],
-        away_team=partita["away_team"],
+        gameweek=partita["gameweek"],
+        season_year=partita["season_year"],
     )
 
-print("\nDebug completato. Nessun dato salvato.")
+    if not rows:
+        continue
+
+    # Log cartellini trovati per verifica
+    ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
+    espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
+    pen_saved = [r["player_name"] for r in rows if r["penalty_save"] > 0]
+    pen_miss  = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
+
+    if ammoniti:  print(f"  Ammoniti:        {ammoniti}")
+    if espulsi:   print(f"  Espulsi:         {espulsi}")
+    if pen_saved: print(f"  Rigori parati:   {pen_saved}")
+    if pen_miss:  print(f"  Rigori sbagliati:{pen_miss}")
+
+    supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
+    total_rows += len(rows)
+    print(f"  Salvati {len(rows)} giocatori ✅")
+
+print(f"\nTotale righe upsert: {total_rows} ✅")
