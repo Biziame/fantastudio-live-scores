@@ -1,9 +1,6 @@
 name: Fetch Serie A Live Scores
 
 on:
-  schedule:
-    # Ogni 5 minuti dalle 12:00 alle 23:00 UTC (14:00-01:00 ora italiana)
-    - cron: '*/5 12-23 * * *'
   workflow_dispatch:
     inputs:
       gameweek:
