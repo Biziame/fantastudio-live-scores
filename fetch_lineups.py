@@ -32,17 +32,17 @@ day_end   = int(datetime.datetime.strptime(DATE, "%Y-%m-%d").replace(hour=23, mi
 result = (
     supabase.table("risultati_live")
     .select("id, sofascore_id, home_team, away_team, gameweek, season_year")
-    .eq("status_type", "finished")
+    .in_("status_type", ["finished", "inprogress"])
     .gte("start_timestamp", day_start)
     .lte("start_timestamp", day_end)
     .execute()
 )
 
 partite = result.data
-print(f"Partite finite trovate: {len(partite)}")
+print(f"Partite trovate (finished + inprogress): {len(partite)}")
 
 if not partite:
-    print("Nessuna partita finita oggi, uscita.")
+    print("Nessuna partita in corso o finita oggi, uscita.")
     exit(0)
 
 
