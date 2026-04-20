@@ -6,10 +6,14 @@ on:
     - cron: '*/5 12-23 * * *'
   workflow_dispatch:
     inputs:
-      test_date:
-        description: 'Data da testare (YYYY-MM-DD), lascia vuoto per oggi'
+      gameweek:
+        description: 'Giornata da scaricare (es. 33), lascia vuoto per usare la più recente'
         required: false
         default: ''
+      skip_time_check:
+        description: 'Salta il controllo finestra orario? (true/false)'
+        required: false
+        default: 'false'
 
 jobs:
   fetch:
@@ -32,12 +36,14 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          TEST_DATE: ${{ github.event.inputs.test_date }}
+          GAMEWEEK: ${{ github.event.inputs.gameweek }}
+          SKIP_TIME_CHECK: ${{ github.event.inputs.skip_time_check }}
         run: python fetch_scores.py
 
       - name: Run fetch_lineups
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          TEST_DATE: ${{ github.event.inputs.test_date }}
+          GAMEWEEK: ${{ github.event.inputs.gameweek }}
+          SKIP_TIME_CHECK: ${{ github.event.inputs.skip_time_check }}
         run: python fetch_lineups.py
