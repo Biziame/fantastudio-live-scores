@@ -50,10 +50,10 @@ if not partite:
 def get_incidents(sofascore_id):
     """
     Struttura SofaScore verificata:
-    - Cartellini:      incidentType="card",  incidentClass="yellow"/"red"/"yellowRed"
-    - Gol su rigore:   incidentType="goal",  from="penalty", incidentClass="regular"
-    - Rigore sbagliato: incidentType="goal", from="penalty", incidentClass="missed"
-    - Rigore parato:   incidentType="goal",  from="penalty", incidentClass="saved"  (+ goalkeeper)
+    - Cartellini:       incidentType="card",  incidentClass="yellow"/"red"/"yellowRed"
+    - Gol su rigore:    incidentType="goal",  from="penalty", incidentClass assente o "regular"
+    - Rigore sbagliato: incidentType="goal",  from="penalty", incidentClass="missed"
+    - Rigore parato:    incidentType="goal",  from="penalty", incidentClass="saved" (+ goalkeeper)
     """
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
     r = session.get(url, headers=headers)
@@ -76,7 +76,7 @@ def get_incidents(sofascore_id):
 
     for inc in incidents:
         inc_type  = inc.get("incidentType", "")
-        inc_class = inc.get("incidentClass", "")
+        inc_class = inc.get("incidentClass", "")  # può essere assente sui rigori gol
         player    = inc.get("player")
         pid       = player.get("id") if player else None
 
@@ -88,20 +88,10 @@ def get_incidents(sofascore_id):
             elif inc_class in ("red", "yellowRed"):
                 data[pid]["red_card"] += 1
 
-        # --- RIGORI (gol, sbagliati, parati) ---
+        # --- RIGORI ---
         elif inc_type == "goal" and inc.get("from") == "penalty":
 
-            if inc_class == "regular" and pid:
-                # Rigore trasformato
-                ensure(pid)
-                data[pid]["goals_penalty"] += 1
-
-            elif inc_class == "missed" and pid:
-                # Rigore sbagliato (fuori o palo)
-                ensure(pid)
-                data[pid]["penalty_miss"] += 1
-
-            elif inc_class == "saved":
+            if inc_class == "saved":
                 # Rigore parato: tiratore sbaglia, portiere para
                 if pid:
                     ensure(pid)
@@ -112,6 +102,17 @@ def get_incidents(sofascore_id):
                     if gkid:
                         ensure(gkid)
                         data[gkid]["penalty_save"] += 1
+
+            elif inc_class == "missed" and pid:
+                # Rigore sbagliato (fuori o palo)
+                ensure(pid)
+                data[pid]["penalty_miss"] += 1
+
+            else:
+                # incidentClass assente o "regular" = rigore trasformato
+                if pid:
+                    ensure(pid)
+                    data[pid]["goals_penalty"] += 1
 
     return data
 
@@ -145,7 +146,6 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
                 "player_name":    player.get("name"),
                 "team_name":      team_name,
                 "is_home":        is_home,
-                # Gol totali da statistics, gol su rigore da incidents
                 "goals":          stats.get("goals", 0) or 0,
                 "goals_penalty":  inc.get("goals_penalty", 0),
                 "penalty_miss":   inc.get("penalty_miss", 0),
@@ -174,18 +174,17 @@ for partita in partite:
     if not rows:
         continue
 
-    # Log di verifica
-    marcatori  = [f"{r['player_name']} ({r['goals']} gol, {r['goals_penalty']} rig)" for r in rows if r["goals"] > 0]
-    ammoniti   = [r["player_name"] for r in rows if r["yellow_card"] > 0]
-    espulsi    = [r["player_name"] for r in rows if r["red_card"] > 0]
-    pen_saved  = [r["player_name"] for r in rows if r["penalty_save"] > 0]
-    pen_miss   = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
+    marcatori = [f"{r['player_name']} ({r['goals']} gol, {r['goals_penalty']} rig)" for r in rows if r["goals"] > 0]
+    ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
+    espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
+    pen_saved = [r["player_name"] for r in rows if r["penalty_save"] > 0]
+    pen_miss  = [r["player_name"] for r in rows if r["penalty_miss"] > 0]
 
-    if marcatori:  print(f"  Marcatori:       {marcatori}")
-    if ammoniti:   print(f"  Ammoniti:        {ammoniti}")
-    if espulsi:    print(f"  Espulsi:         {espulsi}")
-    if pen_saved:  print(f"  Rigori parati:   {pen_saved}")
-    if pen_miss:   print(f"  Rigori sbagliati:{pen_miss}")
+    if marcatori:  print(f"  Marcatori:        {marcatori}")
+    if ammoniti:   print(f"  Ammoniti:         {ammoniti}")
+    if espulsi:    print(f"  Espulsi:          {espulsi}")
+    if pen_saved:  print(f"  Rigori parati:    {pen_saved}")
+    if pen_miss:   print(f"  Rigori sbagliati: {pen_miss}")
 
     supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)
