@@ -136,7 +136,7 @@ print(f"Date da fetchare: {date_uniche}")
 
 all_partite_sofa = []
 for sofa_date in date_uniche:
-    url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
+    url = f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
     r = session.get(url, headers=headers)
     print(f"SofaScore {sofa_date}: {r.status_code}")
     if r.status_code != 200:
