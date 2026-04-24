@@ -28,6 +28,10 @@ async function main() {
 
       if (command === 'date') {
         const date = args[1];
+        if (date !== '2026-04-24') {
+          console.error('DEBUG: skip date', date);
+          process.exit(0);
+        }
         if (!date) {
           console.error('Usage: node fetch_sofascore.js date YYYY-MM-DD');
           process.exit(1);
@@ -39,6 +43,11 @@ async function main() {
         });
 
         await new Promise((r) => setTimeout(r, 2000));
+
+        const htmlSnippet = await page.evaluate(() => {
+          return document.documentElement.innerHTML.slice(0, 5000);
+        });
+        console.error('DEBUG HTML SNIPPET:', htmlSnippet);
 
         const data = await page.evaluate((dateStr) => {
           const events = [];
