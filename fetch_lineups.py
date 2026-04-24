@@ -109,8 +109,10 @@ def get_incidents(sofascore_id):
     )
     if result.returncode != 0:
         print(f"  Errore incidents {sofascore_id}: {result.returncode}")
-        print(f"  STDERR: {result.stderr.strip()}")
-        print(f"  STDOUT: {result.stdout.strip()}")
+        if result.stderr:
+            print(f"  STDERR: {result.stderr.strip()}")
+        else:
+            print("  STDERR: <vuoto>")
         return {}
 
     try:
@@ -178,8 +180,10 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
     )
     if result.returncode != 0:
         print(f"  Errore lineups {sofascore_id}: {result.returncode}")
-        print(f"  STDERR: {result.stderr.strip()}")
-        print(f"  STDOUT: {result.stdout.strip()}")
+        if result.stderr:
+            print(f"  STDERR: {result.stderr.strip()}")
+        else:
+            print("  STDERR: <vuoto>")
         return []
 
     try:

@@ -33,10 +33,16 @@ async function main() {
       let result = null;
 
       page.on('response', async (response) => {
+        const url = response.url();
+        if (url.includes('scheduled-events')) {
+          console.error('DEBUG scheduled-events URL:', url);
+        }
+
         if (result) return;
-        if (response.url().includes(`scheduled-events/${date}`)) {
+        if (url.includes('scheduled-events') && url.includes(date)) {
           try {
-            const json = JSON.parse((await response.buffer()).toString());
+            const buffer = await response.buffer();
+            const json = JSON.parse(buffer.toString());
             result = json;
           } catch (_) {}
         }
@@ -47,9 +53,15 @@ async function main() {
         timeout: 45000,
       });
 
-      if (!result) await new Promise((r) => setTimeout(r, 5000));
+      if (!result) {
+        await new Promise((r) => setTimeout(r, 5000));
+      }
 
-      if (!result) { console.error('Nessuna risposta intercettata'); process.exit(1); }
+      if (!result) {
+        console.error('Nessuna risposta intercettata');
+        process.exit(1);
+      }
+
       console.log(JSON.stringify(result));
 
     } else if (command === 'incidents') {
