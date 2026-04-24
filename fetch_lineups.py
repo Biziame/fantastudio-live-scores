@@ -1,6 +1,7 @@
-import tls_client
 import os
 import datetime
+import json
+import subprocess
 from supabase import create_client
 
 # --- CONFIG ---
@@ -99,36 +100,32 @@ if not partite:
     exit(0)
 
 # --- 5. Sessione SofaScore ---
-session = tls_client.Session(
-    client_identifier="chrome_124",
-    random_tls_extension_order=True
-)
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Referer": "https://www.sofascore.com/",
-    "Origin": "https://www.sofascore.com",
-}
-
-
 def get_incidents(sofascore_id):
-    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
-    r = session.get(url, headers=headers)
-    if r.status_code != 200:
-        print(f"  Errore incidents {sofascore_id}: {r.status_code}")
+    result = subprocess.run(
+        ["node", "fetch_sofascore.js", "incidents", str(sofascore_id)],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"  Errore incidents {sofascore_id}: {result.returncode}")
         return {}
 
-    data = {}
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print(f"  Errore parsing incidents {sofascore_id}")
+        return {}
+
+    incidents_map = {}
 
     def ensure(pid):
-        if pid not in data:
-            data[pid] = {
+        if pid not in incidents_map:
+            incidents_map[pid] = {
                 "goals": 0, "goals_penalty": 0,
                 "penalty_miss": 0, "penalty_save": 0,
                 "yellow_card": 0, "red_card": 0,
             }
 
-    for inc in r.json().get("incidents", []):
+    for inc in data.get("incidents", []):
         inc_type  = inc.get("incidentType", "")
         inc_class = inc.get("incidentClass", "")
         from_type = inc.get("from", "")
@@ -138,48 +135,56 @@ def get_incidents(sofascore_id):
         if inc_type == "card" and pid:
             ensure(pid)
             if inc_class == "yellow":
-                data[pid]["yellow_card"] += 1
+                incidents_map[pid]["yellow_card"] += 1
             elif inc_class in ("red", "yellowRed"):
-                data[pid]["red_card"] += 1
+                incidents_map[pid]["red_card"] += 1
 
         elif inc_type == "goal" and inc_class != "ownGoal":
             if from_type == "penalty":
                 if inc_class == "saved":
                     if pid:
                         ensure(pid)
-                        data[pid]["penalty_miss"] += 1
+                        incidents_map[pid]["penalty_miss"] += 1
                     gk = inc.get("goalkeeper")
                     if gk and gk.get("id"):
                         ensure(gk["id"])
-                        data[gk["id"]]["penalty_save"] += 1
+                        incidents_map[gk["id"]]["penalty_save"] += 1
                 elif inc_class == "missed" and pid:
                     ensure(pid)
-                    data[pid]["penalty_miss"] += 1
+                    incidents_map[pid]["penalty_miss"] += 1
                 else:
                     if pid:
                         ensure(pid)
-                        data[pid]["goals"] += 1
-                        data[pid]["goals_penalty"] += 1
+                        incidents_map[pid]["goals"] += 1
+                        incidents_map[pid]["goals_penalty"] += 1
             else:
                 if pid:
                     ensure(pid)
-                    data[pid]["goals"] += 1
+                    incidents_map[pid]["goals"] += 1
 
-    return data
+    return incidents_map
 
 
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
-    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
-    r = session.get(url, headers=headers)
-    if r.status_code != 200:
-        print(f"  Errore lineups {sofascore_id}: {r.status_code}")
+    result = subprocess.run(
+        ["node", "fetch_sofascore.js", "lineups", str(sofascore_id)],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"  Errore lineups {sofascore_id}: {result.returncode}")
+        return []
+
+    try:
+        lineups_data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print(f"  Errore parsing lineups {sofascore_id}")
         return []
 
     incidents = get_incidents(sofascore_id)
     rows = []
 
     for side in ["home", "away"]:
-        team_data = r.json().get(side, {})
+        team_data = lineups_data.get(side, {})
         team_name = team_data.get("team", {}).get("name", "")
         is_home   = (side == "home")
 
