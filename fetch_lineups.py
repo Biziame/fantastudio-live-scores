@@ -1,4 +1,4 @@
-import tls_client
+from curl_cffi import requests
 import os
 import datetime
 from supabase import create_client
@@ -98,13 +98,8 @@ if not partite:
     print("Nessuna partita in corso o finita per questa giornata, uscita.")
     exit(0)
 
-# --- 5. Sessione SofaScore ---
-session = tls_client.Session(
-    client_identifier="chrome_124",
-    random_tls_extension_order=True
-)
+# --- 5. Headers SofaScore ---
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
@@ -113,7 +108,7 @@ headers = {
 
 def get_incidents(sofascore_id):
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
-    r = session.get(url, headers=headers)
+    r = requests.get(url, headers=headers, impersonate="chrome")
     if r.status_code != 200:
         print(f"  Errore incidents {sofascore_id}: {r.status_code}")
         return {}
@@ -170,7 +165,7 @@ def get_incidents(sofascore_id):
 
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
     url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
-    r = session.get(url, headers=headers)
+    r = requests.get(url, headers=headers, impersonate="chrome")
     if r.status_code != 200:
         print(f"  Errore lineups {sofascore_id}: {r.status_code}")
         return []

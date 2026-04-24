@@ -1,4 +1,4 @@
-import tls_client
+from curl_cffi import requests
 import os
 import datetime
 import zoneinfo
@@ -120,12 +120,7 @@ elif not (finestra_start <= now <= finestra_end):
 print("Dentro la finestra, procedo con il fetch SofaScore...")
 
 # --- 4. Fetch SofaScore per ogni data unica delle partite ---
-session = tls_client.Session(
-    client_identifier="chrome_124",
-    random_tls_extension_order=True
-)
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
@@ -137,7 +132,7 @@ print(f"Date da fetchare: {date_uniche}")
 all_partite_sofa = []
 for sofa_date in date_uniche:
     url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
-    r = session.get(url, headers=headers)
+    r = requests.get(url, headers=headers, impersonate="chrome")
     print(f"SofaScore {sofa_date}: {r.status_code}")
     if r.status_code != 200:
         print(f"  Errore: {r.text[:200]}")
