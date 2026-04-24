@@ -6,7 +6,6 @@ from supabase import create_client
 # --- CONFIG ---
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-SOFASCORE_COOKIE = os.environ.get("SOFASCORE_COOKIE", "")
 
 GAMEWEEK_ENV = os.environ.get("GAMEWEEK", "").strip()
 SKIP_TIME_CHECK = os.environ.get("SKIP_TIME_CHECK", "false").strip().lower() == "true"
@@ -109,12 +108,11 @@ headers = {
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
-    "Cookie": SOFASCORE_COOKIE,
 }
 
 
 def get_incidents(sofascore_id):
-    url = f"https://www.sofascore.com/api/v1/event/{sofascore_id}/incidents"
+    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
         print(f"  Errore incidents {sofascore_id}: {r.status_code}")
@@ -128,7 +126,6 @@ def get_incidents(sofascore_id):
                 "goals": 0, "goals_penalty": 0,
                 "penalty_miss": 0, "penalty_save": 0,
                 "yellow_card": 0, "red_card": 0,
-                "goals_conceded": 0,
             }
 
     for inc in r.json().get("incidents", []):
@@ -163,26 +160,16 @@ def get_incidents(sofascore_id):
                         ensure(pid)
                         data[pid]["goals"] += 1
                         data[pid]["goals_penalty"] += 1
-                    # rigore segnato: portiere subisce gol
-                    gk = inc.get("goalkeeper")
-                    if gk and gk.get("id"):
-                        ensure(gk["id"])
-                        data[gk["id"]]["goals_conceded"] += 1
             else:
                 if pid:
                     ensure(pid)
                     data[pid]["goals"] += 1
-                # gol normale: portiere subisce gol
-                gk = inc.get("goalkeeper")
-                if gk and gk.get("id"):
-                    ensure(gk["id"])
-                    data[gk["id"]]["goals_conceded"] += 1
 
     return data
 
 
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
-    url = f"https://www.sofascore.com/api/v1/event/{sofascore_id}/lineups"
+    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
         print(f"  Errore lineups {sofascore_id}: {r.status_code}")
@@ -217,7 +204,6 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
                 "penalty_save":   inc.get("penalty_save", 0),
                 "yellow_card":    inc.get("yellow_card", 0),
                 "red_card":       inc.get("red_card", 0),
-                "goals_conceded": inc.get("goals_conceded", 0),
                 "minutes_played": stats.get("minutesPlayed", 0) or 0,
             })
 
@@ -242,12 +228,10 @@ for partita in partite:
     marcatori = [f"{r['player_name']} ({r['goals']} gol)" for r in rows if r["goals"] > 0]
     ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
     espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
-    portieri_gol = [f"{r['player_name']} ({r['goals_conceded']} subiti)" for r in rows if r["goals_conceded"] > 0]
 
-    if marcatori:     print(f"  Marcatori:       {marcatori}")
-    if ammoniti:      print(f"  Ammoniti:        {ammoniti}")
-    if espulsi:       print(f"  Espulsi:         {espulsi}")
-    if portieri_gol:  print(f"  Gol subiti (GK): {portieri_gol}")
+    if marcatori: print(f"  Marcatori:  {marcatori}")
+    if ammoniti:  print(f"  Ammoniti:   {ammoniti}")
+    if espulsi:   print(f"  Espulsi:    {espulsi}")
 
     supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)

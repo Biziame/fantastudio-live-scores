@@ -11,7 +11,6 @@ SERIE_A_ID = 23
 
 GAMEWEEK_ENV = os.environ.get("GAMEWEEK", "").strip()
 SKIP_TIME_CHECK = os.environ.get("SKIP_TIME_CHECK", "false").strip().lower() == "true"
-SOFASCORE_COOKIE = os.environ.get("SOFASCORE_COOKIE", "")
 
 MESI = {
     "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4,
@@ -130,7 +129,6 @@ headers = {
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
-    "Cookie": SOFASCORE_COOKIE,
 }
 
 date_uniche = set(dt.strftime("%Y-%m-%d") for dt in orari)
@@ -138,7 +136,7 @@ print(f"Date da fetchare: {date_uniche}")
 
 all_partite_sofa = []
 for sofa_date in date_uniche:
-    url = f"https://www.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
+    url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
     r = session.get(url, headers=headers)
     print(f"SofaScore {sofa_date}: {r.status_code}")
     if r.status_code != 200:

@@ -33,7 +33,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SOFASCORE_COOKIE: ${{ secrets.SOFASCORE_COOKIE }}
           GAMEWEEK: ${{ github.event.inputs.gameweek }}
           SKIP_TIME_CHECK: ${{ github.event.inputs.skip_time_check }}
         run: python fetch_scores.py
@@ -42,7 +41,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SOFASCORE_COOKIE: ${{ secrets.SOFASCORE_COOKIE }}
           GAMEWEEK: ${{ github.event.inputs.gameweek }}
           SKIP_TIME_CHECK: ${{ github.event.inputs.skip_time_check }}
         run: python fetch_lineups.py
