@@ -126,6 +126,7 @@ def get_incidents(sofascore_id):
                 "goals": 0, "goals_penalty": 0,
                 "penalty_miss": 0, "penalty_save": 0,
                 "yellow_card": 0, "red_card": 0,
+                "goals_conceded": 0,
             }
 
     for inc in r.json().get("incidents", []):
@@ -160,10 +161,20 @@ def get_incidents(sofascore_id):
                         ensure(pid)
                         data[pid]["goals"] += 1
                         data[pid]["goals_penalty"] += 1
+                    # rigore segnato: portiere subisce gol
+                    gk = inc.get("goalkeeper")
+                    if gk and gk.get("id"):
+                        ensure(gk["id"])
+                        data[gk["id"]]["goals_conceded"] += 1
             else:
                 if pid:
                     ensure(pid)
                     data[pid]["goals"] += 1
+                # gol normale: portiere subisce gol
+                gk = inc.get("goalkeeper")
+                if gk and gk.get("id"):
+                    ensure(gk["id"])
+                    data[gk["id"]]["goals_conceded"] += 1
 
     return data
 
@@ -204,6 +215,7 @@ def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
                 "penalty_save":   inc.get("penalty_save", 0),
                 "yellow_card":    inc.get("yellow_card", 0),
                 "red_card":       inc.get("red_card", 0),
+                "goals_conceded": inc.get("goals_conceded", 0),
                 "minutes_played": stats.get("minutesPlayed", 0) or 0,
             })
 
@@ -228,10 +240,12 @@ for partita in partite:
     marcatori = [f"{r['player_name']} ({r['goals']} gol)" for r in rows if r["goals"] > 0]
     ammoniti  = [r["player_name"] for r in rows if r["yellow_card"] > 0]
     espulsi   = [r["player_name"] for r in rows if r["red_card"] > 0]
+    portieri_gol = [f"{r['player_name']} ({r['goals_conceded']} subiti)" for r in rows if r["goals_conceded"] > 0]
 
-    if marcatori: print(f"  Marcatori:  {marcatori}")
-    if ammoniti:  print(f"  Ammoniti:   {ammoniti}")
-    if espulsi:   print(f"  Espulsi:    {espulsi}")
+    if marcatori:     print(f"  Marcatori:       {marcatori}")
+    if ammoniti:      print(f"  Ammoniti:        {ammoniti}")
+    if espulsi:       print(f"  Espulsi:         {espulsi}")
+    if portieri_gol:  print(f"  Gol subiti (GK): {portieri_gol}")
 
     supabase.table("player_stats").upsert(rows, on_conflict="sofascore_id,player_id").execute()
     total_rows += len(rows)
