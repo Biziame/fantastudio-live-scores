@@ -6,6 +6,7 @@ from supabase import create_client
 # --- CONFIG ---
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SOFASCORE_COOKIE = os.environ.get("SOFASCORE_COOKIE", "")
 
 GAMEWEEK_ENV = os.environ.get("GAMEWEEK", "").strip()
 SKIP_TIME_CHECK = os.environ.get("SKIP_TIME_CHECK", "false").strip().lower() == "true"
@@ -108,11 +109,12 @@ headers = {
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
+    "Cookie": SOFASCORE_COOKIE,
 }
 
 
 def get_incidents(sofascore_id):
-    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/incidents"
+    url = f"https://www.sofascore.com/api/v1/event/{sofascore_id}/incidents"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
         print(f"  Errore incidents {sofascore_id}: {r.status_code}")
@@ -180,7 +182,7 @@ def get_incidents(sofascore_id):
 
 
 def get_player_rows(match_db_id, sofascore_id, gameweek, season_year):
-    url = f"https://api.sofascore.com/api/v1/event/{sofascore_id}/lineups"
+    url = f"https://www.sofascore.com/api/v1/event/{sofascore_id}/lineups"
     r = session.get(url, headers=headers)
     if r.status_code != 200:
         print(f"  Errore lineups {sofascore_id}: {r.status_code}")

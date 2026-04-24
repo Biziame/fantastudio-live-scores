@@ -11,6 +11,7 @@ SERIE_A_ID = 23
 
 GAMEWEEK_ENV = os.environ.get("GAMEWEEK", "").strip()
 SKIP_TIME_CHECK = os.environ.get("SKIP_TIME_CHECK", "false").strip().lower() == "true"
+SOFASCORE_COOKIE = os.environ.get("SOFASCORE_COOKIE", "")
 
 MESI = {
     "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4,
@@ -129,6 +130,7 @@ headers = {
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
     "Origin": "https://www.sofascore.com",
+    "Cookie": SOFASCORE_COOKIE,
 }
 
 date_uniche = set(dt.strftime("%Y-%m-%d") for dt in orari)
