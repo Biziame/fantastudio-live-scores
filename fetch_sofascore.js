@@ -34,7 +34,6 @@ async function main() {
           process.exit(1);
         }
 
-        const [year, month, day] = date.split('-');
         let result = null;
 
         page.on('response', async (response) => {
@@ -60,7 +59,7 @@ async function main() {
           }
         });
 
-        await page.goto(`https://www.sofascore.com/football/${year}/${month}/${day}`, {
+        await page.goto(`https://www.sofascore.com/football/${date}`, {
           waitUntil: 'networkidle0',
           timeout: 45000,
         });
