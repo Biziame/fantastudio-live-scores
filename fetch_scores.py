@@ -132,6 +132,8 @@ for sofa_date in date_uniche:
     )
     if result.returncode != 0:
         print(f"SofaScore {sofa_date}: errore subprocess ({result.returncode})")
+        print(f"  STDERR: {result.stderr.strip()}")
+        print(f"  STDOUT: {result.stdout.strip()}")
         continue
     try:
         data = json.loads(result.stdout)

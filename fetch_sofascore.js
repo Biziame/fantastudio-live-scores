@@ -1,141 +1,62 @@
-const puppeteer = require('puppeteer');
+import puppeteer from 'puppeteer';
 
-async function main() {
-  const args = process.argv.slice(2);
-  const command = args[0];
+const command = process.argv[2];
+const param   = process.argv[3];
 
-  if (!command) {
-    console.error("Usage: node fetch_sofascore.js <date|incidents|lineups> [id]");
-    process.exit(1);
-  }
+if (!command || !param) {
+  process.stderr.write('Usage: node fetch_sofascore.js <date|incidents|lineups> <value>\n');
+  process.exit(1);
+}
 
+async function fetchSofascore() {
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
   });
 
+  const page = await browser.newPage();
+
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+  );
+
   try {
-    const page = await browser.newPage();
+    let url;
 
     if (command === 'date') {
-      const date = args[1];
-      if (!date) {
-        console.error("Usage: node fetch_sofascore.js date YYYY-MM-DD");
-        process.exit(1);
-      }
-
-      const [year, month, day] = date.split('-');
-      let found = false;
-
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        request.continue();
-      });
-
-      page.on('response', async (response) => {
-        if (found) return;
-        const url = response.url();
-        if (url.includes(`scheduled-events/${date}`)) {
-          try {
-            const buffer = await response.buffer();
-            const json = JSON.parse(buffer.toString());
-            console.log(JSON.stringify(json));
-            found = true;
-          } catch (e) {
-            // ignore
-          }
-        }
-      });
-
-      await page.goto(`https://www.sofascore.com/football/${year}/${month}/${day}`, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
-
-      await page.waitForFunction(() => found, { timeout: 30000 });
-
+      url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${param}`;
     } else if (command === 'incidents') {
-      const sofascoreId = args[1];
-      if (!sofascoreId) {
-        console.error("Usage: node fetch_sofascore.js incidents <sofascore_id>");
-        process.exit(1);
-      }
-
-      const url = `https://api.sofascore.com/api/v1/event/${sofascoreId}/incidents`;
-      let found = false;
-
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        request.continue();
-      });
-
-      page.on('response', async (response) => {
-        if (found) return;
-        const resUrl = response.url();
-        if (resUrl.includes(`/event/${sofascoreId}/incidents`)) {
-          try {
-            const buffer = await response.buffer();
-            const json = JSON.parse(buffer.toString());
-            console.log(JSON.stringify(json));
-            found = true;
-          } catch (e) {
-            // ignore
-          }
-        }
-      });
-
-      await page.goto(`https://www.sofascore.com/event/${sofascoreId}`, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
-
-      await page.waitForFunction(() => found, { timeout: 30000 });
-
+      url = `https://api.sofascore.com/api/v1/event/${param}/incidents`;
     } else if (command === 'lineups') {
-      const sofascoreId = args[1];
-      if (!sofascoreId) {
-        console.error("Usage: node fetch_sofascore.js lineups <sofascore_id>");
-        process.exit(1);
-      }
-
-      const url = `https://api.sofascore.com/api/v1/event/${sofascoreId}/lineups`;
-      let found = false;
-
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        request.continue();
-      });
-
-      page.on('response', async (response) => {
-        if (found) return;
-        const resUrl = response.url();
-        if (resUrl.includes(`/event/${sofascoreId}/lineups`)) {
-          try {
-            const buffer = await response.buffer();
-            const json = JSON.parse(buffer.toString());
-            console.log(JSON.stringify(json));
-            found = true;
-          } catch (e) {
-            // ignore
-          }
-        }
-      });
-
-      await page.goto(`https://www.sofascore.com/event/${sofascoreId}`, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
-
-      await page.waitForFunction(() => found, { timeout: 30000 });
-
+      url = `https://api.sofascore.com/api/v1/event/${param}/lineups`;
     } else {
-      console.error("Unknown command. Use: date, incidents, or lineups");
+      process.stderr.write(`Comando sconosciuto: ${command}\n`);
       process.exit(1);
     }
+
+    process.stderr.write(`Fetching: ${url}\n`);
+
+    const response = await page.goto(url, {
+      waitUntil: 'networkidle0',
+      timeout: 30000
+    });
+
+    const status = response.status();
+    if (status !== 200) {
+      process.stderr.write(`HTTP ${status}\n`);
+      process.exit(1);
+    }
+
+    const json = await response.json();
+    process.stdout.write(JSON.stringify(json) + '\n');
 
   } finally {
     await browser.close();
   }
 }
 
-main();
+fetchSofascore().catch(e => {
+  process.stderr.write(e.message + '\n');
+  process.exit(1);
+});
