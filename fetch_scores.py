@@ -128,7 +128,9 @@ all_partite_sofa = []
 for sofa_date in date_uniche:
     result = subprocess.run(
         ["node", "fetch_sofascore.js", "date", sofa_date],
-        capture_output=True, text=True
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=True
     )
     if result.returncode != 0:
         print(f"SofaScore {sofa_date}: errore subprocess ({result.returncode})")

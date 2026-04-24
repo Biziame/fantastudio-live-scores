@@ -1,62 +1,85 @@
 import puppeteer from 'puppeteer';
 
-const command = process.argv[2];
-const param   = process.argv[3];
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
 
-if (!command || !param) {
-  process.stderr.write('Usage: node fetch_sofascore.js <date|incidents|lineups> <value>\n');
-  process.exit(1);
-}
+  if (!command) {
+    console.error('Usage: node fetch_sofascore.js <date|incidents|lineups> [id]');
+    process.exit(1);
+  }
 
-async function fetchSofascore() {
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+    ],
   });
 
-  const page = await browser.newPage();
-
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-  );
-
   try {
-    let url;
+    const page = await browser.newPage();
+
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'it-IT,it;q=0.9' });
 
     if (command === 'date') {
-      url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${param}`;
+      const date = args[1];
+      const [year, month, day] = date.split('-');
+      let result = null;
+
+      page.on('response', async (response) => {
+        if (result) return;
+        if (response.url().includes(`scheduled-events/${date}`)) {
+          try {
+            const json = JSON.parse((await response.buffer()).toString());
+            result = json;
+          } catch (_) {}
+        }
+      });
+
+      await page.goto(`https://www.sofascore.com/football/${year}/${month}/${day}`, {
+        waitUntil: 'networkidle0',
+        timeout: 45000,
+      });
+
+      if (!result) await new Promise((r) => setTimeout(r, 5000));
+
+      if (!result) { console.error('Nessuna risposta intercettata'); process.exit(1); }
+      console.log(JSON.stringify(result));
+
     } else if (command === 'incidents') {
-      url = `https://api.sofascore.com/api/v1/event/${param}/incidents`;
+      const id = args[1];
+      let result = null;
+      page.on('response', async (res) => {
+        if (result || !res.url().includes(`/event/${id}/incidents`)) return;
+        try { result = JSON.parse((await res.buffer()).toString()); } catch (_) {}
+      });
+      await page.goto(`https://www.sofascore.com/event/${id}`, { waitUntil: 'networkidle0', timeout: 45000 });
+      if (!result) await new Promise((r) => setTimeout(r, 5000));
+      if (!result) { console.error('Nessuna risposta intercettata'); process.exit(1); }
+      console.log(JSON.stringify(result));
+
     } else if (command === 'lineups') {
-      url = `https://api.sofascore.com/api/v1/event/${param}/lineups`;
-    } else {
-      process.stderr.write(`Comando sconosciuto: ${command}\n`);
-      process.exit(1);
+      const id = args[1];
+      let result = null;
+      page.on('response', async (res) => {
+        if (result || !res.url().includes(`/event/${id}/lineups`)) return;
+        try { result = JSON.parse((await res.buffer()).toString()); } catch (_) {}
+      });
+      await page.goto(`https://www.sofascore.com/event/${id}`, { waitUntil: 'networkidle0', timeout: 45000 });
+      if (!result) await new Promise((r) => setTimeout(r, 5000));
+      if (!result) { console.error('Nessuna risposta intercettata'); process.exit(1); }
+      console.log(JSON.stringify(result));
     }
-
-    process.stderr.write(`Fetching: ${url}\n`);
-
-    const response = await page.goto(url, {
-      waitUntil: 'networkidle0',
-      timeout: 30000
-    });
-
-    const status = response.status();
-    if (status !== 200) {
-      process.stderr.write(`HTTP ${status}\n`);
-      process.exit(1);
-    }
-
-    const json = await response.json();
-    process.stdout.write(JSON.stringify(json) + '\n');
 
   } finally {
     await browser.close();
   }
 }
 
-fetchSofascore().catch(e => {
-  process.stderr.write(e.message + '\n');
-  process.exit(1);
-});
+main();
