@@ -132,7 +132,9 @@ print(f"Date da fetchare: {date_uniche}")
 all_partite_sofa = []
 for sofa_date in date_uniche:
     url = f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{sofa_date}"
-    r = requests.get(url, headers=headers, impersonate="chrome")
+    proxy_url = os.environ.get("PROXY_URL")
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    r = requests.get(url, headers=headers, impersonate="chrome", proxies=proxies)
     print(f"SofaScore {sofa_date}: {r.status_code}")
     if r.status_code != 200:
         print(f"  Errore: {r.text[:200]}")
