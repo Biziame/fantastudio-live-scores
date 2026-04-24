@@ -40,70 +40,81 @@ async function main() {
 
         await new Promise((r) => setTimeout(r, 3000));
 
-        const eventsData = await page.evaluate(() => {
+        const data = await page.evaluate((dateStr) => {
           const events = [];
-          const seenIds = new Set();
-          const currentYear = new Date().getFullYear();
-          let now = Math.floor(Date.now() / 1000);
 
-          const anchors = document.querySelectorAll('a[href*="/event/"]');
-          anchors.forEach((a) => {
-            const href = a.getAttribute('href');
-            const m = href?.match(/\/event\/(\d+)/);
-            if (!m) return;
+          const links = Array.from(document.querySelectorAll('a[href*="#id:"]'));
 
-            const id = parseInt(m[1], 10);
-            if (seenIds.has(id)) return;
-            seenIds.add(id);
+          links.forEach((link) => {
+            try {
+              const href = link.getAttribute('href') || '';
+              const m = href.match(/#id:(\d+)/);
+              if (!m) return;
+              const id = Number(m[1]);
 
-            let el = a;
-            for (let i = 0; i < 10; i++) {
-              if (!el) break;
-              el = el.parentElement;
-            }
+              const raw = link.textContent.replace(/\s+/g, ' ').trim();
+              if (!raw) return;
+              const parts = raw.split(' ').filter(Boolean);
 
-            const txt = el?.textContent || '';
+              const homeName = parts[0];
+              const awayName = parts[parts.length - 1];
 
-            const teams = txt.split(/vs|doppio|-/).map(s => s.trim()).filter(Boolean).slice(0, 2);
-            const homeTeam = teams[0] || 'Home';
-            const awayTeam = teams[1] || 'Away';
+              let timeMatch = raw.match(/(\d{1,2}:\d{2})/);
+              let startTimestamp;
+              if (timeMatch) {
+                const time = timeMatch[1];
+                const [hh, mm] = time.split(':').map(Number);
+                const dt = new Date(dateStr + 'T' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + ':00Z');
+                startTimestamp = Math.floor(dt.getTime() / 1000);
+              } else {
+                startTimestamp = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
+              }
 
-            let status = { code: 0, type: 'notstarted' };
-            if (txt.toLowerCase().includes('live') || txt.toLowerCase().includes('in corso')) {
-              status = { code: 2, type: 'inprogress' };
-            } else if (txt.toLowerCase().includes('finished') || txt.toLowerCase().includes('terminato')) {
-              status = { code: 3, type: 'finished' };
-            }
+              let tournamentName = '';
+              let tournamentId = 23;
+              let parent = link.parentElement;
+              for (let i = 0; i < 5 && parent; i++) {
+                const tLink = parent.querySelector('a[href*="/football/tournament/"]');
+                if (tLink) {
+                  tournamentName = tLink.textContent.replace(/\s+/g, ' ').trim();
+                  const tHref = tLink.getAttribute('href') || '';
+                  const tIdMatch = tHref.match(/\/tournament\/[^/]+\/[^/]+\/(\d+)/);
+                  if (tIdMatch) {
+                    tournamentId = Number(tIdMatch[1]);
+                  }
+                  break;
+                }
+                parent = parent.parentElement;
+              }
 
-            const score = txt.match(/(\d+)\s*-\s*(\d+)/);
-            const homeScore = score ? parseInt(score[1], 10) : null;
-            const awayScore = score ? parseInt(score[2], 10) : null;
-
-            events.push({
-              id: id,
-              homeTeam: { name: homeTeam, id: null, nameCode: null },
-              awayTeam: { name: awayTeam, id: null, nameCode: null },
-              tournament: { name: 'Serie A', uniqueTournament: { id: 23 } },
-              season: { year: currentYear },
-              startTimestamp: now,
-              homeScore: { current: homeScore, period1: null },
-              awayScore: { current: awayScore, period1: null },
-              status: status,
-              roundInfo: { round: null },
-            });
+              events.push({
+                id,
+                homeTeam: { name: homeName, id: null, nameCode: null },
+                awayTeam: { name: awayName, id: null, nameCode: null },
+                tournament: {
+                  name: tournamentName,
+                  uniqueTournament: { id: tournamentId },
+                },
+                season: { year: new Date(dateStr).getFullYear() },
+                startTimestamp,
+                homeScore: {},
+                awayScore: {},
+                status: { code: 0, type: 'notstarted' },
+                roundInfo: {},
+              });
+            } catch (e) {}
           });
 
+          console.error('DEBUG events found:', events.length);
           return { events };
-        });
+        }, date);
 
-        console.error('DEBUG events found:', eventsData.events.length);
-
-        if (eventsData.events.length === 0) {
+        if (!data || !Array.isArray(data.events) || data.events.length === 0) {
           console.error('Nessun evento trovato nel DOM');
           process.exit(1);
         }
 
-        console.log(JSON.stringify(eventsData));
+        console.log(JSON.stringify(data));
 
       } else if (command === 'incidents') {
         const id = args[1];
