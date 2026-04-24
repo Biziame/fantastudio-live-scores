@@ -25,7 +25,6 @@ async function main() {
       await page.setUserAgent(
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
       );
-      await page.setExtraHTTPHeaders({ 'Accept-Language': 'it-IT,it;q=0.9' });
 
       if (command === 'date') {
         const date = args[1];
@@ -34,46 +33,77 @@ async function main() {
           process.exit(1);
         }
 
-        let result = null;
-
-        page.on('response', async (response) => {
-          const url = response.url();
-
-          if (url.includes('api.sofascore')) {
-            console.error('DEBUG api.sofascore URL:', url);
-          }
-
-          if (result) return;
-          if (url.includes('scheduled-events')) {
-            try {
-              const buffer = await response.buffer();
-              const text = buffer.toString();
-
-              console.error('DEBUG scheduled-events response length:', text.length);
-
-              const json = JSON.parse(text);
-              result = json;
-            } catch (err) {
-              console.error('DEBUG parse error on scheduled-events:', err?.message || err);
-            }
-          }
-        });
-
         await page.goto(`https://www.sofascore.com/football/${date}`, {
           waitUntil: 'networkidle0',
           timeout: 45000,
         });
 
-        if (!result) {
-          await new Promise((r) => setTimeout(r, 5000));
-        }
+        await new Promise((r) => setTimeout(r, 3000));
 
-        if (!result) {
-          console.error('Nessuna risposta intercettata');
+        const eventsData = await page.evaluate(() => {
+          const events = [];
+          const seenIds = new Set();
+          const currentYear = new Date().getFullYear();
+          let now = Math.floor(Date.now() / 1000);
+
+          const anchors = document.querySelectorAll('a[href*="/event/"]');
+          anchors.forEach((a) => {
+            const href = a.getAttribute('href');
+            const m = href?.match(/\/event\/(\d+)/);
+            if (!m) return;
+
+            const id = parseInt(m[1], 10);
+            if (seenIds.has(id)) return;
+            seenIds.add(id);
+
+            let el = a;
+            for (let i = 0; i < 10; i++) {
+              if (!el) break;
+              el = el.parentElement;
+            }
+
+            const txt = el?.textContent || '';
+
+            const teams = txt.split(/vs|doppio|-/).map(s => s.trim()).filter(Boolean).slice(0, 2);
+            const homeTeam = teams[0] || 'Home';
+            const awayTeam = teams[1] || 'Away';
+
+            let status = { code: 0, type: 'notstarted' };
+            if (txt.toLowerCase().includes('live') || txt.toLowerCase().includes('in corso')) {
+              status = { code: 2, type: 'inprogress' };
+            } else if (txt.toLowerCase().includes('finished') || txt.toLowerCase().includes('terminato')) {
+              status = { code: 3, type: 'finished' };
+            }
+
+            const score = txt.match(/(\d+)\s*-\s*(\d+)/);
+            const homeScore = score ? parseInt(score[1], 10) : null;
+            const awayScore = score ? parseInt(score[2], 10) : null;
+
+            events.push({
+              id: id,
+              homeTeam: { name: homeTeam, id: null, nameCode: null },
+              awayTeam: { name: awayTeam, id: null, nameCode: null },
+              tournament: { name: 'Serie A', uniqueTournament: { id: 23 } },
+              season: { year: currentYear },
+              startTimestamp: now,
+              homeScore: { current: homeScore, period1: null },
+              awayScore: { current: awayScore, period1: null },
+              status: status,
+              roundInfo: { round: null },
+            });
+          });
+
+          return { events };
+        });
+
+        console.error('DEBUG events found:', eventsData.events.length);
+
+        if (eventsData.events.length === 0) {
+          console.error('Nessun evento trovato nel DOM');
           process.exit(1);
         }
 
-        console.log(JSON.stringify(result));
+        console.log(JSON.stringify(eventsData));
 
       } else if (command === 'incidents') {
         const id = args[1];
