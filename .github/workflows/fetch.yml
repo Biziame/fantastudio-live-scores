@@ -14,10 +14,9 @@ on:
 
 jobs:
   fetch:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      PROXY_URL: ${{ secrets.PROXY_URL }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
