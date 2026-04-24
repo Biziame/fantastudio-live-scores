@@ -38,31 +38,29 @@ async function main() {
           timeout: 45000,
         });
 
-        await new Promise((r) => setTimeout(r, 3000));
+        await new Promise((r) => setTimeout(r, 2000));
 
         const data = await page.evaluate((dateStr) => {
           const events = [];
 
-          const links = Array.from(document.querySelectorAll('a[href*="#id:"]'));
+          const links = Array.from(document.querySelectorAll('a[data-id][href*="#id:"]'));
 
           links.forEach((link) => {
             try {
-              const href = link.getAttribute('href') || '';
-              const m = href.match(/#id:(\d+)/);
-              if (!m) return;
-              const id = Number(m[1]);
+              const idAttr = link.getAttribute('data-id');
+              if (!idAttr) return;
+              const id = Number(idAttr);
 
-              const raw = link.textContent.replace(/\s+/g, ' ').trim();
-              if (!raw) return;
-              const parts = raw.split(' ').filter(Boolean);
+              const timeBdi = link.querySelector('bdi.textStyle_body\\.small');
+              let time = timeBdi ? timeBdi.textContent.trim() : null;
 
-              const homeName = parts[0];
-              const awayName = parts[parts.length - 1];
+              const teamBdis = link.querySelectorAll('bdi.textStyle_body\\.medium');
+              if (teamBdis.length < 2) return;
+              const homeName = teamBdis[0].textContent.trim();
+              const awayName = teamBdis[1].textContent.trim();
 
-              let timeMatch = raw.match(/(\d{1,2}:\d{2})/);
               let startTimestamp;
-              if (timeMatch) {
-                const time = timeMatch[1];
+              if (time && /^\d{1,2}:\d{2}$/.test(time)) {
                 const [hh, mm] = time.split(':').map(Number);
                 const dt = new Date(dateStr + 'T' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0') + ':00Z');
                 startTimestamp = Math.floor(dt.getTime() / 1000);
@@ -70,30 +68,13 @@ async function main() {
                 startTimestamp = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
               }
 
-              let tournamentName = '';
-              let tournamentId = 23;
-              let parent = link.parentElement;
-              for (let i = 0; i < 5 && parent; i++) {
-                const tLink = parent.querySelector('a[href*="/football/tournament/"]');
-                if (tLink) {
-                  tournamentName = tLink.textContent.replace(/\s+/g, ' ').trim();
-                  const tHref = tLink.getAttribute('href') || '';
-                  const tIdMatch = tHref.match(/\/tournament\/[^/]+\/[^/]+\/(\d+)/);
-                  if (tIdMatch) {
-                    tournamentId = Number(tIdMatch[1]);
-                  }
-                  break;
-                }
-                parent = parent.parentElement;
-              }
-
               events.push({
                 id,
                 homeTeam: { name: homeName, id: null, nameCode: null },
                 awayTeam: { name: awayName, id: null, nameCode: null },
                 tournament: {
-                  name: tournamentName,
-                  uniqueTournament: { id: tournamentId },
+                  name: '',
+                  uniqueTournament: { id: null },
                 },
                 season: { year: new Date(dateStr).getFullYear() },
                 startTimestamp,
@@ -109,7 +90,7 @@ async function main() {
           return { events };
         }, date);
 
-        if (!data || !Array.isArray(data.events) || data.events.length === 0) {
+        if (!data || !data.events || data.events.length === 0) {
           console.error('Nessun evento trovato nel DOM');
           process.exit(1);
         }
